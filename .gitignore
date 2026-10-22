@@ -1,0 +1,24 @@
+# ortam
+.env
+.env.local
+.env*.local
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+backend/data/
+
+# node
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
+# işletim sistemi / editör
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
