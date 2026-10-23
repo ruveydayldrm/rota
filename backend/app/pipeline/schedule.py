@@ -87,7 +87,12 @@ def order_stops(items: list[T], mode: str, start: int = DEFAULT_START, anchor_id
     if not sights:
         return list(items)
 
-    start_idx = next((i for i, p in enumerate(sights) if p.id == anchor_id), 0)
+    start_idx = next((i for i, p in enumerate(sights) if p.id == anchor_id), None)
+    if start_idx is None:
+        # Başlangıç yoksa merkezden en uzak noktadan başla: rota zikzak yerine tek yönde süpürür.
+        clat = sum(p.lat for p in sights) / len(sights)
+        clon = sum(p.lon for p in sights) / len(sights)
+        start_idx = max(range(len(sights)), key=lambda i: haversine_km((clat, clon), (sights[i].lat, sights[i].lon)))
     route = [sights[i] for i in nearest_neighbor_order([(p.lat, p.lon) for p in sights], start_idx)]
 
     restaurants = 0

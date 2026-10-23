@@ -17,6 +17,7 @@ from app.providers.llm.base import LLMProvider
 from app.providers.llm.fallback import FallbackLLM
 from app.providers.llm.gemini import GeminiProvider
 from app.providers.llm.openai_compat import groq_provider
+from app.providers.osm.chain import PlaceSourceChain
 from app.providers.osm.nominatim import NominatimService
 from app.providers.osm.overpass import OverpassService
 from app.providers.routing.router import ORSProvider, OSRMProvider, RoutingProvider, RoutingService
@@ -33,16 +34,17 @@ def build_pipeline(settings: Settings, client: httpx.AsyncClient, cache: Cache) 
     if settings.groq_api_key:
         llms.append(groq_provider(client, settings.groq_api_key, settings.groq_model))
     if not llms:
-        log.warning("Hiç LLM anahtarı yok: GEMINI_API_KEY veya GROQ_API_KEY tanımlayın.")
+        log.warning("LLM anahtarı yok: kural tabanlı niyet ve seçim kullanılacak (GEMINI_API_KEY / GROQ_API_KEY).")
 
     routers: list[RoutingProvider] = [OSRMProvider(client, settings.osrm_foot_url, settings.osrm_car_url)]
     if settings.ors_api_key:
         routers.append(ORSProvider(client, settings.ors_api_key))
 
+    nominatim = NominatimService(client, cache, settings.nominatim_url)
     return Pipeline(
         llm=FallbackLLM(llms),
-        geocoder=NominatimService(client, cache, settings.nominatim_url),
-        places=OverpassService(client, cache, settings.overpass_list),
+        geocoder=nominatim,
+        places=PlaceSourceChain([OverpassService(client, cache, settings.overpass_list), nominatim]),
         router=RoutingService(routers, cache),
         wiki=WikiService(client, cache),
         cache=cache,

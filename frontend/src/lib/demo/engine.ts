@@ -171,7 +171,7 @@ export async function* demoStream(message: string, current: Trip | null): AsyncG
   }
 
   if (!current || !currentCity) {
-    yield* reply(DEMO_HELP);
+    yield* reply(message.trim().split(/\s+/).length <= 3 ? notInDemo(message) : DEMO_HELP);
     return;
   }
 
@@ -219,5 +219,18 @@ export async function* demoStream(message: string, current: Trip | null): AsyncG
     return;
   }
 
+  // Düzenleme gibi görünmüyorsa büyük olasılıkla demoda olmayan bir şehir istendi.
+  if (!/(olsun|ekle|değiş|daha|başka|yerine)/.test(text)) {
+    yield* reply(notInDemo(message));
+    return;
+  }
   yield* reply(EDIT_HELP);
+}
+
+function notInDemo(message: string): string {
+  const place = message.trim().split(/['’\s]/)[0];
+  return (
+    `${place ? `“${place}” için` : "Bu istek için"} demo modunda hazır veri yok. Demo yalnızca İstanbul, Kapadokya ` +
+    "ve Mardin'i içerir; diğer şehirler canlı modda, gerçek OpenStreetMap verisiyle çalışır."
+  );
 }

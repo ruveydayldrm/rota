@@ -46,12 +46,13 @@ export interface Trip {
   intro: string;
   outro: string;
   candidates_count: number;
+  sources?: Record<string, string>;
 }
 
 export type RotaEvent =
-  | { type: "intent_parsed"; data: { intent: Intent | null } }
-  | { type: "places_found"; data: { count: number } }
-  | { type: "stops_selected"; data: { stops: Stop[] } }
+  | { type: "intent_parsed"; data: { intent: Intent | null; source?: string | null } }
+  | { type: "places_found"; data: { count: number; source?: string | null } }
+  | { type: "stops_selected"; data: { stops: Stop[]; source?: string | null } }
   | { type: "route_ready"; data: { route: Route; stops: Stop[]; city: string; center: [number, number] } }
   | { type: "text_delta"; data: { text: string; part: "intro" | "outro" } }
   | { type: "done"; data: { trip: Trip | null } }

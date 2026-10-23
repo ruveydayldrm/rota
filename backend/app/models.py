@@ -149,7 +149,9 @@ class Place(BaseModel):
     category: str
     tags: dict[str, str] = Field(default_factory=dict)
     tag_count: int = 0
+    importance: float = 0.0  # Nominatim'in Wikipedia tabanlı ünlülük ölçüsü (0-1); Overpass'ta yok
     score: float = 0.0
+    source: Literal["overpass", "nominatim"] = "overpass"
 
 
 class WikiInfo(BaseModel):
@@ -201,6 +203,8 @@ class Trip(BaseModel):
     intro: str = ""
     outro: str = ""
     candidates_count: int = 0
+    # Her adımı gerçekte hangi kaynağın yaptığı: {"intent": "LLM"|"kurallar", "places": ..., "stops": ...}
+    sources: dict[str, str] = Field(default_factory=dict)
 
 
 class TripRecord(BaseModel):

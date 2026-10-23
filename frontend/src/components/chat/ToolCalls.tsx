@@ -47,7 +47,7 @@ export default function ToolCalls({ steps, intent }: { steps: ToolStep[]; intent
             <div className="flex items-center gap-2.5">
               <StatusMark status={step.status} />
               <span className={step.status === "done" ? "text-text/85" : undefined}>
-                {step.label} <span className="text-muted/70">· {step.source}</span>
+                {step.label} {step.source && <span className="text-muted/70">· {step.source}</span>}
               </span>
             </div>
             {step.key === "intent" && step.status === "done" && intent && <IntentBox intent={intent} />}

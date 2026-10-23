@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     osrm_car_url: str = "https://routing.openstreetmap.de/routed-car"
     overpass_urls: str = "https://overpass-api.de/api/interpreter,https://overpass.private.coffee/api/interpreter"
     nominatim_url: str = "https://nominatim.openstreetmap.org"
-    user_agent: str = "Rota/0.1 (open-source AI city guide; https://github.com/your-username/rota)"
+    user_agent: str = "Rota/0.1 (open-source AI city guide; https://github.com/ruveydayldrm/rota)"
 
     cache_path: str = "data/rota_cache.sqlite3"
     cors_origins: str = "http://localhost:3000"

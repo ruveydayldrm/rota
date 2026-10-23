@@ -71,19 +71,21 @@ function initialState(): RotaState {
 function applyEvent(state: RotaState, bot: BotMessage, event: RotaEvent): [RotaState, BotMessage] {
   switch (event.type) {
     case "intent_parsed": {
-      const { intent } = event.data;
-      let steps = finishStep(bot.steps, "intent", "İstek ayrıştırıldı", "LLM");
-      if (intent) steps = addStep(steps, "places", "Gerçek mekanlar aranıyor", "Overpass");
+      const { intent, source } = event.data;
+      let steps = finishStep(bot.steps, "intent", "İstek ayrıştırıldı", source ?? "LLM");
+      if (intent) steps = addStep(steps, "places", "Gerçek mekanlar aranıyor", "OpenStreetMap");
       return [state, { ...bot, steps, intent }];
     }
     case "places_found": {
-      let steps = finishStep(bot.steps, "places", `${event.data.count} gerçek mekan bulundu`, "Overpass");
-      steps = addStep(steps, "stops", "Duraklar seçiliyor", "LLM");
+      const { count, source } = event.data;
+      let steps = finishStep(bot.steps, "places", `${count} gerçek mekan bulundu`, source ?? "Overpass");
+      steps = addStep(steps, "stops", "Duraklar seçiliyor", "");
       return [state, { ...bot, steps }];
     }
     case "stops_selected": {
       const mode = bot.intent?.mod ?? "yuruyus";
-      let steps = finishStep(bot.steps, "stops", `${event.data.stops.length} durak seçildi, sıralandı`, "LLM");
+      const { source } = event.data;
+      let steps = finishStep(bot.steps, "stops", `${event.data.stops.length} durak seçildi, sıralandı`, source ?? "LLM");
       steps = addStep(steps, "route", `${MODE_LABEL[mode]} rotası hesaplanıyor`, "OSRM");
       return [state, { ...bot, steps, stops: event.data.stops }];
     }
@@ -121,7 +123,7 @@ function reducer(state: RotaState, action: Action): RotaState {
       const bot: BotMessage = {
         role: "bot",
         id: action.botId,
-        steps: [{ key: "intent", label: "İstek ayrıştırılıyor", source: "LLM", status: "running" }],
+        steps: [{ key: "intent", label: "İstek ayrıştırılıyor", source: "", status: "running" }],
         intro: "",
         outro: "",
         status: "streaming",

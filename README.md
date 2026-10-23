@@ -4,7 +4,7 @@
 
 **Ne sevdiğini söyle, günü haritada kuralım.** Sohbetle gerçek mekanlardan gezi rotası kuran, tamamen ücretsiz servislerle çalışan yapay zekâ destekli şehir rehberi.
 
-[![CI](https://github.com/your-username/rota/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/rota/actions/workflows/ci.yml)
+[![CI](https://github.com/ruveydayldrm/rota/actions/workflows/ci.yml/badge.svg)](https://github.com/ruveydayldrm/rota/actions/workflows/ci.yml)
 ![Next.js](https://img.shields.io/badge/Next.js-15-000?logo=nextdotjs)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?logo=typescript&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind-4-38bdf8?logo=tailwindcss&logoColor=white)
@@ -35,6 +35,8 @@
 - **Gerçek mekanlar, gerçek yollar.** Overpass (OSM) adayları, OSRM yürüyüş ve araç rotaları, Wikipedia özeti ve Commons fotoğrafı.
 - **Takip mesajları.** “Topkapı olmasın”, “öğle yemeğini değiştir”, “araçla olsun”: mevcut rota güncellenir, sıfırdan başlanmaz.
 - **Kartografik arayüz.** MapLibre + OpenFreeMap. Palete göre yeniden boyanmış, sade ve düşük kontrastlı açık/koyu harita stilleri. Pinler 0,3 sn arayla sekerek düşer, rota ~2,5 sn'de çizilir, istatistikler sayarak artar.
+- **Anahtarsız da çalışır.** LLM anahtarı yoksa ya da kota dolduysa niyet ve seçim kural tabanlı yapılır (81 il + turistik bölgeler, anahtar kelimeler). Arayüzdeki araç çağrıları hangi adımın LLM'le, hangisinin kurallarla yapıldığını dürüstçe gösterir.
+- **Dayanıklı veri hattı.** Overpass erişilemezse mekanlar Nominatim kategori aramasıyla gelir. Düşen kaynak 5 dakika boyunca atlanır, böylece her istekte zaman aşımı beklenmez.
 - **Demo modu.** `NEXT_PUBLIC_DEMO_MODE=true` iken backend'e hiç gidilmez. İstanbul, Kapadokya ve Mardin için gerçek OSM/OSRM/Wikipedia verisinden üretilmiş hazır rotalar, gerçekçi gecikmelerle oynatılır.
 - **Erişilebilir.** Tam klavye desteği, görünür odak halkası, `prefers-reduced-motion` desteği, sistem temasını takip eden açık/koyu tema ve elle tema seçimi.
 - **Kota dostu.** SQLite önbelleği (Nominatim, Overpass, Wikipedia, rotalar, tam yanıtlar) ve IP başına hız sınırlama.
@@ -90,7 +92,7 @@ Bu davranış `tests/test_selection.py` ve `tests/test_pipeline.py` içinde uydu
 |---|---|---|
 | Niyet ve seçim | **Google Gemini Flash** (AI Studio) | Ücretsiz anahtar. 429 veya hata gelirse otomatik olarak Groq'a geçilir |
 | Yedek LLM | **Groq** (OpenAI uyumlu) | Yeni sağlayıcılar `OpenAICompatibleProvider` ile tek satırda eklenir |
-| Mekanlar | **Overpass API** (OpenStreetMap) | Birden çok sunucu sırayla denenir |
+| Mekanlar | **Overpass API** (OpenStreetMap) | Birden çok sunucu sırayla denenir. Hepsi düşerse **Nominatim** kategori aramasına geçilir |
 | Geocoding | **Nominatim** | En fazla 1 istek/sn, açıklayıcı User-Agent |
 | Rota | **OSRM** (routing.openstreetmap.de) | Yürüyüş ve araç. Yedekleri: OpenRouteService, son çare düz çizgi + tahmini süre |
 | Açıklama ve foto | **Wikipedia REST** + **Wikidata** + **Commons** | OSM'deki `wikidata`/`wikipedia` etiketiyle eşleşir |
@@ -116,6 +118,8 @@ npm run dev                 # → http://localhost:3000
 ```
 
 ### Geliştirme (canlı mod)
+
+Anahtar zorunlu değil: `.env` boşsa backend kural tabanlı modda çalışır ve her şehir için gerçek OSM verisiyle rota kurar. Gemini veya Groq anahtarı eklemek seçimi ve anlatımı belirgin şekilde iyileştirir.
 
 ```bash
 # backend
@@ -147,6 +151,8 @@ cd frontend && npm run lint && npm run build
 
 ## Bilinen sınırlamalar
 
+- Kural tabanlı modda (LLM'siz) seçim kalitesi daha düşüktür: ipuçları kategoriye göre geneldir, öğle yemeği bazen durakların 1–1,5 km uzağına düşebilir. Yemeği durakların ortasında ayrıca aramak yapılacaklar listesinde.
+- Nominatim yedeğinde bazı mekanlar OSM'de Türkçe adı olmadığı için İngilizce adla gelebilir.
 - Ücretsiz Overpass ve OSRM sunucuları yoğun saatlerde yavaşlayabilir ya da yanıt vermeyebilir. Bu durumda kullanıcıya “Şu an çok yoğunuz…” mesajı gösterilir, rota tarafında ORS veya düz çizgi yedeği devreye girer.
 - Açılış saatleri, bilet fiyatları ve anlık kalabalık bilgisi yok. İpuçları genel nitelikte.
 - Saat planı kategoriye göre ortalama ziyaret süresi ve gerçek yol süresiyle hesaplanır. Kişisel tempo dikkate alınmaz.
@@ -156,6 +162,7 @@ cd frontend && npm run lint && npm run build
 
 ## Gelecek planları
 
+- Öğle yemeğini seçilen durakların ortasında ayrıca arama
 - Çok günlü planları günlere bölme ve otel/başlangıç noktası seçimi
 - `opening_hours` etiketiyle açık/kapalı kontrolü
 - Rotayı paylaşılabilir bağlantı ve GPX olarak dışa aktarma

@@ -27,6 +27,7 @@ from app.models import (
 )
 from app.pipeline.candidates import rank_pool, shortlist
 from app.pipeline.intent import parse_intent
+from app.pipeline.rules import rule_parse
 from app.pipeline.schedule import DEFAULT_START, estimate_leg_min, order_stops, parse_hhmm, schedule_times
 from app.pipeline.select import select_stops
 from app.providers.llm.base import LLMUnavailable
@@ -156,15 +157,15 @@ class Pipeline:
         previous_intent = prev.trip.intent if prev else req.context
 
         # 1) Niyet
-        parse = await self._parse(req.message, previous_intent)
+        parse, intent_source = await self._parse(req.message, previous_intent)
         intent = parse.to_intent()
         if intent is None:
-            yield "intent_parsed", {"intent": None}
+            yield "intent_parsed", {"intent": None, "source": intent_source}
             async for ev in self._text(parse.soru or "Hangi şehir için rota kuralım?", "intro"):
                 yield ev
             yield "done", {"trip": None}
             return
-        yield "intent_parsed", {"intent": intent.model_dump(mode="json")}
+        yield "intent_parsed", {"intent": intent.model_dump(mode="json"), "source": intent_source}
 
         editing = prev is not None and parse.tur == "duzenle" and norm(prev.trip.intent.sehir) == norm(intent.sehir)
         if editing and parse.yalnizca_mod and prev is not None:
@@ -181,7 +182,9 @@ class Pipeline:
 
         # 2-3) Konum ve gerçek aday mekanlar
         center, pool = await self._candidates(intent, prev.candidates if editing and prev else [])
-        yield "places_found", {"count": len(pool)}
+        nominatim_share = sum(p.source == "nominatim" for p in pool) / len(pool)
+        places_source = "Nominatim" if nominatim_share > 0.5 else "Overpass"
+        yield "places_found", {"count": len(pool), "source": places_source}
 
         # 4) LLM seçimi (yalnızca aday ID'leri) ve coğrafi sıralama
         current = prev.trip.stops if editing and prev else None
@@ -197,7 +200,8 @@ class Pipeline:
             Stop.from_place(p, tip=result.tips.get(p.id, ""), time=t, wiki=known_wiki.get(p.id))
             for p, t in zip(ordered, schedule_times(ordered, legs, start))
         ]
-        yield "stops_selected", {"stops": dump(stops)}
+        stops_source = "LLM" if result.used_llm else "kurallar"
+        yield "stops_selected", {"stops": dump(stops), "source": stops_source}
 
         # 5) Rota (+ arka planda Wikipedia)
         wiki_task = asyncio.create_task(self.wiki.enrich([p for p in ordered if p.id not in known_wiki]))
@@ -230,19 +234,24 @@ class Pipeline:
             intro=result.intro,
             outro=result.outro,
             candidates_count=len(pool),
+            sources={"intent": intent_source, "places": places_source, "stops": stops_source},
         )
         self._save(TripRecord(trip=trip, candidates=pool), by_intent=not editing)
         yield "done", {"trip": trip.model_dump(mode="json")}
 
-    async def _parse(self, message: str, previous: Intent | None) -> IntentParse:
+    async def _parse(self, message: str, previous: Intent | None) -> tuple[IntentParse, str]:
         if previous is None:
             cached = self.cache.get("intent", norm(message))
             if cached:
-                return IntentParse.model_validate(cached)
-        parse = await parse_intent(self.llm, message, previous)
+                return IntentParse.model_validate(cached), "LLM"
+        try:
+            parse = await parse_intent(self.llm, message, previous)
+        except LLMUnavailable:
+            log.info("LLM yok; kural tabanlı niyet çıkarma kullanılıyor")
+            return rule_parse(message, previous), "kurallar"  # LLM gelince daha iyisi üretilsin diye önbelleğe alınmaz
         if previous is None:
             self.cache.set("intent", norm(message), parse.model_dump(mode="json"), ttl=7 * DAY)
-        return parse
+        return parse, "LLM"
 
     async def _candidates(self, intent: Intent, previous: list[Place]) -> tuple[list[float], list[Place]]:
         query = GEOCODE_ALIASES.get(norm(intent.sehir), intent.sehir)
@@ -274,8 +283,8 @@ class Pipeline:
         return [s.model_copy(update={"time": t}) for s, t in zip(stops, times)]
 
     async def _remode_events(self, prev: TripRecord, mode: Mode) -> AsyncIterator[Event]:
-        yield "places_found", {"count": prev.trip.candidates_count}
-        yield "stops_selected", {"stops": dump(prev.trip.stops)}
+        yield "places_found", {"count": prev.trip.candidates_count, "source": prev.trip.sources.get("places")}
+        yield "stops_selected", {"stops": dump(prev.trip.stops), "source": prev.trip.sources.get("stops")}
         record = await self.remode(prev, mode)
         trip = record.trip
         yield (
@@ -300,8 +309,8 @@ class Pipeline:
 
     async def _replay(self, record: TripRecord) -> AsyncIterator[Event]:
         trip = record.trip
-        yield "places_found", {"count": trip.candidates_count}
-        yield "stops_selected", {"stops": dump(trip.stops)}
+        yield "places_found", {"count": trip.candidates_count, "source": trip.sources.get("places")}
+        yield "stops_selected", {"stops": dump(trip.stops), "source": trip.sources.get("stops")}
         yield (
             "route_ready",
             {

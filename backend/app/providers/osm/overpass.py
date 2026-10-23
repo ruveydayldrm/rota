@@ -140,7 +140,7 @@ class OverpassService:
         last_error: Exception | None = None
         for url in self._urls:
             try:
-                res = await self._client.post(url, data={"data": query}, timeout=45)
+                res = await self._client.post(url, data={"data": query}, timeout=10)
                 if res.status_code != 200:
                     raise OverpassError(f"HTTP {res.status_code}")
                 places = parse_elements(res.json().get("elements", []))

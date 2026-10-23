@@ -106,17 +106,82 @@ def candidate_lines(candidates: list[Place], center: tuple[float, float]) -> str
     return "\n".join(lines)
 
 
-def deterministic_selection(candidates: list[Place], intent: Intent, current: list[Stop] | None) -> SelectionResult:
+MAX_PER_CATEGORY = 3
+REMOVE_WORDS = ("çıkar", "kaldır", "olmasın", "istemiyorum", "atla", "sil")
+FOOD_WORDS = ("yemek", "öğle", "restoran", "lokanta")
+GENERIC_NAME_WORDS = {
+    "camii", "cami", "sarayı", "müzesi", "vadisi", "kalesi", "tarihi", "medresesi", "açık", "hava", "parkı",
+    "restaurant", "restoran", "kilisesi", "çarşısı", "konağı", "kulesi", "anıtı", "evi",
+}  # fmt: skip
+
+
+def _lower(text: str) -> str:
+    return text.replace("İ", "i").replace("I", "ı").lower()
+
+
+def mentioned(name: str, message_lower: str) -> bool:
+    """Mesaj, mekan adının ayırt edici bir kelimesini (ilk 5 harfiyle, eklere dayanıklı) içeriyor mu?"""
+    stems = [w[:5] for w in _lower(name).replace("'", " ").split() if len(w) >= 4 and w not in GENERIC_NAME_WORDS]
+    return any(stem in message_lower for stem in stems)
+
+
+def _pick_diverse(places: list[Place], n: int) -> list[Place]:
+    chosen: list[Place] = []
+    per_category: dict[str, int] = {}
+    for p in sorted(places, key=lambda x: -x.score):
+        if per_category.get(p.category, 0) >= MAX_PER_CATEGORY:
+            continue
+        chosen.append(p)
+        per_category[p.category] = per_category.get(p.category, 0) + 1
+        if len(chosen) == n:
+            break
+    return chosen
+
+
+def _closest_good(options: list[Place], sights: list[Place]) -> Place:
+    """Durakların ortasına yakın, puanı da iyi olan yemek yeri: yemek için rotadan sapılmasın."""
+    if not sights:
+        return max(options, key=lambda p: p.score)
+    clat = sum(s.lat for s in sights) / len(sights)
+    clon = sum(s.lon for s in sights) / len(sights)
+    return min(options, key=lambda p: haversine_km((clat, clon), (p.lat, p.lon)) - 0.1 * p.score)
+
+
+def deterministic_selection(
+    candidates: list[Place], intent: Intent, current: list[Stop] | None, message: str = ""
+) -> SelectionResult:
     """LLM yoksa ya da geçersiz çıktı verdiyse: puanı en yüksek gerçek mekanlardan kural tabanlı seçim."""
     by_id = {p.id: p for p in candidates}
+    low = _lower(message)
+    intro = f"{intent.sehir} için gerçek mekanlardan bir rota hazırladım."
     if current:
         places = [by_id[s.id] for s in current if s.id in by_id]
         tips = {s.id: s.tip for s in current}
+        if any(w in low for w in REMOVE_WORDS):
+            removed = [p for p in places if mentioned(p.name, low)]
+            if removed and len(places) - len(removed) >= 3:
+                places = [p for p in places if p not in removed]
+                intro = f"Tamam, {', '.join(p.name for p in removed)} rotadan çıktı."
+        elif any(w in low for w in FOOD_WORDS):
+            used = {p.id for p in places}
+            options = sorted(
+                (p for p in candidates if p.category == "restoran" and p.id not in used), key=lambda p: -p.score
+            )
+            old = next((i for i, p in enumerate(places) if p.category == "restoran"), None)
+            if options and old is not None:
+                tips.pop(places[old].id, None)
+                places[old] = options[0]
+                intro = f"Öğle yemeğini {options[0].name} olarak değiştirdim."
     else:
         _, max_n = STOP_LIMITS[intent.sure]
-        sights = sorted((p for p in candidates if p.category not in FOOD), key=lambda p: -p.score)
-        food = sorted((p for p in candidates if p.category == "restoran"), key=lambda p: -p.score)
-        places = sights[: max_n - 1] + food[:1]
+        restaurants = [p for p in candidates if p.category == "restoran"]
+        cafes = [p for p in candidates if p.category == "kafe"]
+        food_n = (1 if restaurants or cafes else 0) + (1 if "kahve" in intent.ilgi and restaurants and cafes else 0)
+        sights = _pick_diverse([p for p in candidates if p.category not in FOOD], max_n - food_n)
+        food = [_closest_good(restaurants or cafes, sights)] if food_n else []
+        if food_n == 2:
+            food.append(_closest_good(cafes, sights))
+        places = sights + food
         tips = {}
     for p in places:
         tips.setdefault(p.id, TIP_BY_CATEGORY.get(p.category, "Acele etmeden, keyfini çıkararak gez."))
@@ -124,8 +189,8 @@ def deterministic_selection(candidates: list[Place], intent: Intent, current: li
         places=places,
         tips=tips,
         anchor_id=None,
-        intro=f"{intent.sehir} için gerçek mekanlardan bir rota hazırladım.",
-        outro="Bir durağı çıkarmak ya da ulaşım şeklini değiştirmek istersen yazman yeterli.",
+        intro=intro,
+        outro="Bir durağı çıkarmak, öğle yemeğini değiştirmek ya da ulaşım şeklini değiştirmek istersen yaz.",
         used_llm=False,
     )
 
@@ -160,11 +225,11 @@ async def select_stops(
         )
     except LLMUnavailable:
         log.warning("Seçim için LLM yok; kural tabanlı seçime düşülüyor")
-        return deterministic_selection(candidates, intent, current)
+        return deterministic_selection(candidates, intent, current, message)
 
     picks = validate_picks(selection.secilen, by_id, max_n)
     if len(picks) < MIN_VALID:
-        return deterministic_selection(candidates, intent, current)
+        return deterministic_selection(candidates, intent, current, message)
 
     timed = [(parse_hhmm(p.saat), p.id) for p in picks if parse_hhmm(p.saat) is not None]
     anchor = min(timed)[1] if timed else None
